@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ComicCon Bingo Generator</title>
+    <!-- Tailwind CSS for layout and aesthetics -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Comic Book Halftone Pattern Background */
+        .comic-bg {
+            background-color: #ffffff;
+            background-image: radial-gradient(#fbbf24 20%, transparent 20%), radial-gradient(#fbbf24 20%, transparent 20%);
+            background-position: 0 0, 10px 10px;
+            background-size: 20px 20px;
+        }
+
+        /* --- ROBUST PRINT STYLES --- */
+        @media print {
+            /* 1. Hide everything by default */
+            body > * { display: none !important; }
+
+            /* 2. Reset Body Layout */
+            body {
+                background: white !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                height: auto !important;
+                width: 100% !important;
+                overflow: visible !important;
+                display: block !important;
+            }
+
+            /* 3. Unhide the specific container hierarchy */
+            #generator-view {
+                display: block !important;
+                width: 100% !important;
+                margin: 0 !important;
+                padding: 0 !important;
+            }
+
+            #sheets-container {
+                display: block !important;
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100% !important;
+                margin: 0 !important;
+                padding: 10px 0 !important;
+            }
+
+            /* 4. Hide controls within the generator view */
+            #controls, .no-print { display: none !important; }
+
+            /* 5. Sheet Styling - Updated for 2 per page */
+            .bingo-sheet {
+                display: flex !important;
+                flex-direction: column !important;
+                width: 70% !important; /* Reduced width to fit 2 vertically */
+                max-width: 100% !important;
+                margin: 0 auto 30px auto !important;
+                border: 3px solid black !important;
+                page-break-inside: avoid !important;
+                page-break-after: auto !important;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+
+            /* Force page break after every 2nd sheet */
+            .bingo-sheet:nth-child(even) { page-break-after: always !important; }
+
+            /* 6. Grid & Cell Adjustments */
+            .bingo-grid { border-color: black !important; }
+            .bingo-cell { border-color: black !important; color: white !important; }
+            .bingo-header-cell {
+                background-color: black !important;
+                color: #fbbf24 !important;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+            img { max-width: 100% !important; }
+        }
+        
+        /* Animation for drawing a new card */
+        @keyframes popIn {
+            0% { transform: scale(0.8); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        .animate-pop { animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+        
+        /* Called State Transition */
+        .board-item { transition: all 0.5s ease-in-out; }
+        .board-item.called {
+            opacity: 1 !important;
+            filter: grayscale(0) !important;
+            transform: scale(1.05);
+            z-index: 10;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+    </style>
+</head>
+<body class="bg-gray-100 font-sans min-h-screen flex flex-col items-center p-4">
+
+    <!-- Header Section -->
+    <div id="main-header" class="text-center mb-6 max-w-2xl">
+        <h1 class="text-4xl font-extrabold text-indigo-900 mb-2">ComicCon Bingo</h1>
+        <p class="text-gray-600">Generate sheets or call the game using characters from comics & games.</p>
+    </div>
+
+    <!-- Mode Tabs -->
+    <div id="mode-tabs" class="flex justify-center gap-2 mb-6 bg-white p-1 rounded-full shadow-md border border-gray-200">
+        <button onclick="switchTab('generator')" id="tab-generator" class="px-6 py-2 rounded-full text-sm font-bold transition-all bg-indigo-600 text-white shadow-sm">
+            Sheet Generator
+        </button>
+        <button onclick="switchTab('caller')" id="tab-caller" class="px-6 py-2 rounded-full text-sm font-bold transition-all text-gray-600 hover:bg-gray-100">
+            Game Caller & Tracker
+        </button>
+    </div>
+
+    <!-- VIEW 1: GENERATOR -->
+    <div id="generator-view" class="w-full flex flex-col items-center">
+        <!-- Controls -->
+        <div id="controls" class="bg-white p-6 rounded-xl shadow-lg flex flex-col gap-4 border border-gray-200 max-w-2xl w-full mb-8">
+            <h3 class="font-bold text-gray-800 border-b pb-1">Configuration</h3>
+            <div class="flex flex-col sm:flex-row gap-4 items-center justify-start w-full">
+                <div class="flex flex-col items-start">
+                    <label for="numSheets" class="text-sm font-semibold text-gray-700 mb-1">Sheets to Generate</label>
+                    <input type="number" id="numSheets" value="80" min="1" max="200" class="w-32 p-2 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 outline-none transition">
+                </div>
+                
+                <div class="flex flex-col gap-2 mt-2 sm:mt-6">
+                    <button onclick="generateSheets()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-6 rounded shadow transition transform hover:scale-105 active:scale-95">
+                        Generate Sheets
+                    </button>
+                    <div class="flex gap-2">
+                        <button id="printBtn" onclick="window.print()" disabled class="flex-1 bg-gray-400 text-white font-bold py-2 px-4 rounded shadow cursor-not-allowed transition text-xs" title="Generate sheets first">
+                            Print Sheets
+                        </button>
+                        <button id="exportBtn" onclick="exportGameData()" disabled class="flex-1 bg-gray-400 text-white font-bold py-2 px-4 rounded shadow cursor-not-allowed transition text-xs" title="Generate sheets first">
+                            Export Game Data
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- BRANDING SECTION -->
+            <div class="mt-4 pt-4 border-t border-gray-200">
+                <h3 class="font-bold text-gray-800 mb-3">Branding & Logos</h3>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div class="flex flex-col items-start">
+                        <label class="text-xs font-semibold text-gray-500 uppercase mb-1">Event Logo (Center)</label>
+                        <input type="file" accept="image/*" onchange="handleHeaderUpload(this)" class="w-full text-xs text-gray-500 file:mr-2 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
+                    </div>
+                    <div class="flex flex-col items-start">
+                        <label class="text-xs font-semibold text-gray-500 uppercase mb-1">Center Free Space</label>
+                        <input type="file" accept="image/*" onchange="handleCenterUpload(this)" class="w-full text-xs text-gray-500 file:mr-2 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
+                    </div>
+                    <div class="flex flex-col items-start">
+                        <label class="text-xs font-semibold text-gray-500 uppercase mb-1">Sponsor 1 (Left)</label>
+                        <input type="file" accept="image/*" onchange="handleSponsor1Upload(this)" class="w-full text-xs text-gray-500 file:mr-2 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100">
+                    </div>
+                    <div class="flex flex-col items-start">
+                        <label class="text-xs font-semibold text-gray-500 uppercase mb-1">Sponsor 2 (Right)</label>
+                        <input type="file" accept="image/*" onchange="handleSponsor2Upload(this)" class="w-full text-xs text-gray-500 file:mr-2 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Container for the Bingo Sheets -->
+        <div id="sheets-container" class="w-full flex flex-wrap justify-center gap-8">
+            <div class="no-print text-center text-gray-400 py-12 border-2 border-dashed border-gray-300 rounded-lg w-full max-w-md">
+                <p>Upload logos & click Generate to start.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- VIEW 2: CALLER -->
+    <div id="caller-view" class="w-full hidden max-w-7xl flex-col items-center">
+        <!-- Game Controls -->
+        <div class="w-full flex flex-col md:flex-row justify-between items-center mb-6 bg-white p-4 rounded-lg shadow-sm border border-gray-200 gap-4">
+            <div class="flex items-center gap-6">
+                <div>
+                    <span class="text-sm text-gray-500 font-bold uppercase tracking-wider">Called</span>
+                    <div class="text-2xl font-bold text-gray-800">
+                        <span id="call-progress">0</span> / <span id="total-count">0</span>
+                    </div>
+                </div>
+                
+                <!-- NEW: Game Data Import -->
+                <div class="flex flex-col">
+                    <span class="text-xs font-semibold text-gray-400 uppercase">Load Game Data</span>
+                    <label class="text-xs text-indigo-600 hover:text-indigo-800 cursor-pointer font-bold flex items-center">
+                        <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                        Upload Saved JSON
+                        <input type="file" class="hidden" accept=".json" onchange="importGameData(this)">
+                    </label>
+                </div>
+            </div>
+
+            <button onclick="startNewGame()" class="text-red-500 hover:text-red-700 font-medium text-sm border border-red-200 hover:bg-red-50 px-4 py-2 rounded transition">
+                Reset / New Game
+            </button>
+        </div>
+
+        <div class="w-full grid grid-cols-1 lg:grid-cols-12 gap-8 mb-8">
+            <!-- LEFT: Caller Controls (4 cols) -->
+            <div class="lg:col-span-4 flex flex-col items-center">
+                <!-- Main Call Display -->
+                <div class="w-full aspect-square bg-white rounded-2xl shadow-xl flex flex-col items-center justify-center p-8 border-4 border-indigo-100 mb-6 relative overflow-hidden">
+                    <div class="absolute top-0 left-0 w-full h-2 bg-indigo-500"></div>
+                    <p class="text-gray-400 font-bold uppercase tracking-widest text-sm mb-4">Current Call</p>
+                    <div id="current-call-display" class="text-center w-full flex flex-col items-center">
+                        <h2 class="text-4xl sm:text-5xl font-black text-gray-800 leading-tight">Ready?</h2>
+                    </div>
+                </div>
+
+                <!-- Call Button -->
+                <button id="btn-call-next" onclick="callNextCharacter()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xl font-bold py-4 rounded-xl shadow-lg transform transition hover:-translate-y-1 active:translate-y-0 active:bg-indigo-800 mb-6 flex items-center justify-center gap-2">
+                    <span>Call Next Character</span>
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7"></path></svg>
+                </button>
+                
+                <!-- Recent History -->
+                <div class="w-full">
+                    <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Last 5 Calls</h3>
+                    <div id="recent-history" class="flex flex-wrap gap-2 min-h-[2rem]">
+                        <span class="text-gray-400 italic text-sm">No calls yet.</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- CENTER: Visual Board (5 cols) -->
+            <div class="lg:col-span-5 flex flex-col">
+                <h3 class="text-gray-600 font-bold uppercase tracking-wider text-sm mb-2 flex justify-between items-center">
+                    <span>Master Board</span>
+                    <span class="text-xs text-gray-400 font-normal">All available characters</span>
+                </h3>
+                <div id="tracking-board" class="bg-white p-2 rounded-xl shadow-md border border-gray-200 grid grid-cols-5 gap-1.5 overflow-y-auto max-h-[600px]">
+                    <div class="col-span-full text-center text-gray-400 py-10">Start a game to load the board.</div>
+                </div>
+            </div>
+
+            <!-- RIGHT: Leaderboard (3 cols) -->
+            <div class="lg:col-span-3 flex flex-col">
+                <h3 class="text-gray-600 font-bold uppercase tracking-wider text-sm mb-2 flex justify-between items-center">
+                    <span>Sheet Tracker</span>
+                    <span id="sheet-count-display" class="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">0 Sheets</span>
+                </h3>
+                <div id="sheet-leaderboard" class="bg-white p-2 rounded-xl shadow-md border border-gray-200 overflow-y-auto max-h-[600px] flex flex-col gap-2">
+                    <div class="text-center text-gray-400 text-sm py-10 px-4">
+                        <p class="mb-2">No sheets tracked.</p>
+                        <p class="text-xs">Generate sheets first, or upload a JSON file from a previous run.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- DATA ---
+        // EXACT list of 84 unique characters from the uploaded PDF
+        const masterCharacterList = [
+            "Aloy (Horizon)", "Among Us Crewmate", "Aquaman (DC)", "Arthur Morgan (Red Dead)", "Batman (DC)",
+            "Black Panther (Marvel)", "Black Widow (Marvel)", "Bowser (Super Mario)", "Captain America (Marvel)",
+            "Catwoman (DC)", "Charizard", "Cloud Strife (Final Fantasy)", "Commander Shepard", "Crash Bandicoot",
+            "Cuphead", "Daredevil (Marvel)", "Darkseid (DC)", "Deadpool (Marvel)", "Doctor Strange (Marvel)",
+            "Donkey Kong", "Doom Slayer", "Dr. Eggman", "Ellie (The Last of Us)", "Freddy Fazbear", "Ganondorf",
+            "Geralt of Rivia (Witcher)", "Goku (Dragon Ball)", "Green Lantern (Hal Jordan)", "Groot (Guardians)",
+            "Harley Quinn (DC)", "Hollow Knight", "Hulk (Marvel)", "Iron Man (Marvel)", "Izuku Midoriya (Deku)",
+            "Joel Miller (TLOU)", "Kirby (Nintendo)", "Knuckles the Echidna", "Kratos (God of War)",
+            "Lara Croft (Tomb Raider)", "Lex Luthor (DC)", "Link (Legend of Zelda)", "Loki (Marvel)",
+            "Luigi (Super Mario)", "Mario (Super Mario)", "Master Chief (Halo)", "Mega Man", "Miles Morales",
+            "Miles Tails Prower", "Monkey D. Luffy", "Naruto Uzumaki", "Nightwing (DC)", "Pac-Man", "Pikachu",
+            "Poison Ivy (DC)", "Princess Peach", "Rocket Raccoon", "Sailor Moon", "Saitama (One Punch Man)",
+            "Samus Aran (Metroid)", "Sans (Undertale)", "Scarlet Witch (Marvel)", "Sephiroth (Final Fantasy)",
+            "Shadow the Hedgehog", "Shovel Knight", "Solid Snake (Metal Gear)", "Sonic the Hedgehog",
+            "Spider-Man (Marvel)", "Spyro the Dragon", "Steve (Minecraft)", "Street Fighter Ryu", "Superman (DC)",
+            "Tanjiro Kamado", "Thanos (Marvel)", "The Flash (DC)", "The Joker (DC)", "Thor (Marvel)",
+            "Toad (Super Mario)", "Vegeta (Dragon Ball)", "Venom (Marvel)", "Wolverine (X-Men)", "Wonder Woman (DC)",
+            "Yoshi (Super Mario)", "Zagreus (Hades)", "Zelda (Legend of Zelda)"
+        ];
+        
+        // --- STATE ---
+        let headerLogoData = null;
+        let centerLogoData = null;
+        let sponsor1Data = null;
+        let sponsor2Data = null;
+        
+        let deck = [];
+        let calledHistory = [];
+        let generatedSheetsRegistry = []; // Stores the data of generated sheets for tracking
+
+        // --- NAVIGATION ---
+        function switchTab(tabName) {
+            const generatorView = document.getElementById('generator-view');
+            const callerView = document.getElementById('caller-view');
+            const tabGen = document.getElementById('tab-generator');
+            const tabCall = document.getElementById('tab-caller');
+
+            if (tabName === 'generator') {
+                generatorView.classList.remove('hidden');
+                callerView.classList.add('hidden');
+                callerView.classList.remove('flex');
+                tabGen.classList.add('bg-indigo-600', 'text-white', 'shadow-sm');
+                tabGen.classList.remove('text-gray-600', 'hover:bg-gray-100');
+                tabCall.classList.remove('bg-indigo-600', 'text-white', 'shadow-sm');
+                tabCall.classList.add('text-gray-600', 'hover:bg-gray-100');
+            } else {
+                generatorView.classList.add('hidden');
+                callerView.classList.remove('hidden');
+                callerView.classList.add('flex');
+                tabCall.classList.add('bg-indigo-600', 'text-white', 'shadow-sm');
+                tabCall.classList.remove('text-gray-600', 'hover:bg-gray-100');
+                tabGen.classList.remove('bg-indigo-600', 'text-white', 'shadow-sm');
+                tabGen.classList.add('text-gray-600', 'hover:bg-gray-100');
+                
+                if (deck.length === 0 && calledHistory.length === 0) startNewGame();
+                updateSheetLeaderboard();
+            }
+        }
+
+        // --- IMAGE HELPERS ---
+        function getCharacterImage(name, index = 0) {
+            const query = encodeURIComponent(name + ' official art');
+            return `https://tse4.mm.bing.net/th?q=${query}&w=200&h=200&c=7&rs=1&p=${index}`;
+        }
+
+        window.handleImageError = function(img, name) {
+            const encodedName = encodeURIComponent(name);
+            img.src = `https://ui-avatars.com/api/?name=${encodedName}&background=random&color=fff&size=128&bold=true`;
+            img.onerror = null; 
+            img.onclick = null;
+            img.classList.remove('cursor-pointer');
+        };
+
+        window.cycleImage = function(img, name) {
+            let currentIndex = parseInt(img.getAttribute('data-search-index') || '0');
+            let nextIndex = currentIndex + 1;
+            img.setAttribute('data-search-index', nextIndex);
+            img.style.opacity = '0.5';
+            img.src = getCharacterImage(name, nextIndex);
+            img.onload = () => { img.style.opacity = '1'; };
+        };
+        
+        // --- UPLOAD HANDLERS ---
+        function handleHeaderUpload(input) { readImage(input, (data) => { headerLogoData = data; regenerateIfReady(); }); }
+        function handleCenterUpload(input) { readImage(input, (data) => { centerLogoData = data; regenerateIfReady(); }); }
+        function handleSponsor1Upload(input) { readImage(input, (data) => { sponsor1Data = data; regenerateIfReady(); }); }
+        function handleSponsor2Upload(input) { readImage(input, (data) => { sponsor2Data = data; regenerateIfReady(); }); }
+        
+        function readImage(input, callback) {
+            if (input.files && input.files[0]) {
+                const reader = new FileReader();
+                reader.onload = function(e) { callback(e.target.result); };
+                reader.readAsDataURL(input.files[0]);
+            }
+        }
+
+        function regenerateIfReady() {
+            if (document.getElementById('sheets-container').children.length > 1) {
+                generateSheets();
+            }
+        }
+
+        // --- GENERATOR LOGIC ---
+        function shuffle(array) {
+            let currentIndex = array.length, randomIndex;
+            while (currentIndex != 0) {
+                randomIndex = Math.floor(Math.random() * currentIndex);
+                currentIndex--;
+                [array[currentIndex], array[randomIndex]] = [array[randomIndex], array[currentIndex]];
+            }
+            return array;
+        }
+
+        function generateSheets() {
+            const numSheetsInput = document.getElementById('numSheets');
+            let numSheets = parseInt(numSheetsInput.value);
+            if (isNaN(numSheets) || numSheets < 1) numSheets = 1;
+            if (numSheets > 200) numSheets = 200;
+            numSheetsInput.value = numSheets;
+
+            const container = document.getElementById('sheets-container');
+            container.innerHTML = ''; 
+            
+            generatedSheetsRegistry = [];
+            const activeList = masterCharacterList;
+
+            if (activeList.length < 14) {
+                alert(`Not enough characters (${activeList.length}). Need at least 14.`);
+                return;
+            }
+
+            for (let i = 0; i < numSheets; i++) {
+                const sheetData = createSingleSheet(i + 1, activeList);
+                container.appendChild(sheetData.element);
+                generatedSheetsRegistry.push({
+                    id: i + 1,
+                    items: sheetData.items 
+                });
+            }
+
+            document.getElementById('printBtn').disabled = false;
+            document.getElementById('printBtn').classList.remove('bg-gray-400', 'cursor-not-allowed');
+            document.getElementById('printBtn').classList.add('bg-green-600', 'hover:bg-green-700');
+            
+            document.getElementById('exportBtn').disabled = false;
+            document.getElementById('exportBtn').classList.remove('bg-gray-400', 'cursor-not-allowed');
+            document.getElementById('exportBtn').classList.add('bg-blue-600', 'hover:bg-blue-700');
+            
+            document.getElementById('sheet-count-display').innerText = `${generatedSheetsRegistry.length} Sheets`;
+            updateSheetLeaderboard();
+        }
+
+        function createSingleSheet(sheetNumber, sourceList) {
+            let shuffledList = shuffle([...sourceList]); 
+            let sheetItems = shuffledList.slice(0, 14);
+            const logicItems = [...sheetItems];
+            
+            sheetItems.splice(7, 0, "FREE SPACE");
+
+            const sheetDiv = document.createElement('div');
+            sheetDiv.className = 'bingo-sheet comic-bg p-6 shadow-md w-full max-w-xl mx-auto mb-8 border-4 border-black relative flex flex-col';
+
+            // --- HEADER ---
+            const header = document.createElement('div');
+            header.className = 'flex items-center justify-between mb-4 border-b-4 border-black pb-2 bg-white/90 p-2 rounded min-h-[80px]';
+
+            const leftLogo = document.createElement('div');
+            leftLogo.className = "w-1/4 flex justify-start items-center";
+            if (sponsor1Data) leftLogo.innerHTML = `<img src="${sponsor1Data}" class="h-12 sm:h-16 w-full object-contain object-left" alt="Sponsor 1">`;
+            header.appendChild(leftLogo);
+
+            const centerLogo = document.createElement('div');
+            centerLogo.className = "w-1/2 flex flex-col items-center justify-center";
+            if (headerLogoData) {
+                centerLogo.innerHTML = `<img src="${headerLogoData}" class="h-16 sm:h-24 w-full object-contain" alt="Event Logo">`;
+            } else {
+                 centerLogo.innerHTML = `<h2 class="text-xl sm:text-2xl font-black uppercase tracking-widest text-black drop-shadow-sm italic text-center leading-tight">COMIC CON<br>BINGO</h2>`;
+            }
+            const sheetNum = document.createElement('div');
+            sheetNum.className = "text-[10px] text-gray-800 font-bold font-mono mt-1";
+            sheetNum.innerText = `Sheet #${sheetNumber}`;
+            centerLogo.appendChild(sheetNum);
+            header.appendChild(centerLogo);
+
+            const rightLogo = document.createElement('div');
+            rightLogo.className = "w-1/4 flex justify-end items-center";
+            if (sponsor2Data) rightLogo.innerHTML = `<img src="${sponsor2Data}" class="h-12 sm:h-16 w-full object-contain object-right" alt="Sponsor 2">`;
+            header.appendChild(rightLogo);
+            sheetDiv.appendChild(header);
+
+            // --- GRID ---
+            const gridDiv = document.createElement('div');
+            gridDiv.className = 'bingo-grid grid grid-cols-5 border-t-2 border-l-2 border-black bg-white shadow-xl';
+
+            ['B', 'I', 'N', 'G', 'O'].forEach(letter => {
+                const cell = document.createElement('div');
+                cell.className = 'bingo-header-cell flex items-center justify-center h-10 bg-black text-yellow-400 font-black text-2xl border-r-2 border-b-2 border-black';
+                cell.innerText = letter;
+                gridDiv.appendChild(cell);
+            });
+
+            sheetItems.forEach((item, index) => {
+                const cell = document.createElement('div');
+                let classes = 'bingo-cell aspect-square relative p-0 border-r-2 border-b-2 border-black overflow-hidden bg-gray-200';
+                
+                if (index === 7) {
+                    if (centerLogoData) {
+                         classes += ' bg-white';
+                         cell.className = classes;
+                         cell.innerHTML = `<img src="${centerLogoData}" class="w-full h-full object-contain p-1" alt="Center Logo">`;
+                    } else {
+                        classes += ' free-space bg-black flex flex-col items-center justify-center';
+                        cell.className = classes;
+                        cell.innerHTML = `<div class="flex flex-col justify-center items-center leading-none w-full h-full z-10"><span class="text-green-500 font-bold uppercase tracking-wider text-[0.6rem] sm:text-[0.65rem] md:text-xs">Bengaluru</span><span class="text-yellow-400 font-black uppercase tracking-tighter text-sm sm:text-base md:text-xl transform scale-y-110">Comic Con</span></div>`;
+                    }
+                } else {
+                    cell.className = classes;
+                    const imageUrl = getCharacterImage(item);
+                    const safeName = item.replace(/'/g, "\\'"); 
+                    const displayName = item.split('(')[0].trim();
+
+                    cell.innerHTML = `
+                        <img src="${imageUrl}" 
+                             class="absolute inset-0 w-full h-full object-cover z-0 cursor-pointer hover:opacity-90 transition-opacity" 
+                             alt="${item}"
+                             data-search-index="0"
+                             onclick="cycleImage(this, '${safeName}')"
+                             onerror="handleImageError(this, '${safeName}')">
+                        <div class="absolute bottom-0 left-0 w-full bg-black/75 text-white text-[9px] sm:text-[10px] font-bold py-1 px-1 z-10 text-center leading-tight pointer-events-none">
+                            ${displayName}
+                        </div>
+                    `;
+                }
+                gridDiv.appendChild(cell);
+            });
+
+            sheetDiv.appendChild(gridDiv);
+            return { element: sheetDiv, items: logicItems };
+        }
+
+        // --- CALLER & TRACKER LOGIC ---
+        
+        function startNewGame() {
+            const activeList = masterCharacterList;
+            if (activeList.length < 14) return;
+            
+            deck = shuffle([...activeList]);
+            calledHistory = [];
+            
+            renderMasterBoard();
+            updateCallerUI(null);
+            updateSheetLeaderboard(); 
+        }
+        
+        function callNextCharacter() {
+            if (deck.length === 0) return;
+            const item = deck.pop();
+            calledHistory.unshift(item);
+            
+            markBoardCharacterAsCalled(item);
+            updateCallerUI(item);
+            updateSheetLeaderboard(); 
+        }
+
+        // --- TRACKER FEATURES ---
+
+        function updateSheetLeaderboard() {
+            const container = document.getElementById('sheet-leaderboard');
+            if (generatedSheetsRegistry.length === 0) {
+                container.innerHTML = `<div class="text-center text-gray-400 text-sm py-10 px-4"><p class="mb-2">No sheets tracked.</p><p class="text-xs">Generate sheets first, or upload a JSON file.</p></div>`;
+                return;
+            }
+
+            const sheetStatuses = generatedSheetsRegistry.map(sheet => {
+                let hits = 0;
+                sheet.items.forEach(char => {
+                    if (calledHistory.includes(char)) hits++;
+                });
+                const isBingo = hits === 14; 
+                return { id: sheet.id, hits: hits, isBingo: isBingo };
+            });
+
+            sheetStatuses.sort((a, b) => {
+                if (a.isBingo && !b.isBingo) return -1;
+                if (!a.isBingo && b.isBingo) return 1;
+                return b.hits - a.hits;
+            });
+
+            let html = '';
+            sheetStatuses.forEach(status => {
+                const percent = Math.round((status.hits / 14) * 100);
+                let statusClass = "bg-gray-50 border-gray-200";
+                let textClass = "text-gray-600";
+                let badge = `${status.hits}/14`;
+
+                if (status.isBingo) {
+                    statusClass = "bg-green-100 border-green-500 ring-2 ring-green-400";
+                    textClass = "text-green-800 font-bold";
+                    badge = "BINGO!";
+                } else if (status.hits >= 10) {
+                    statusClass = "bg-yellow-50 border-yellow-300";
+                    textClass = "text-yellow-800 font-semibold";
+                }
+
+                html += `
+                <div class="flex justify-between items-center p-2 rounded border ${statusClass} ${textClass} text-sm">
+                    <span>Sheet #${status.id}</span>
+                    <div class="flex items-center gap-2">
+                        <div class="w-16 h-2 bg-gray-200 rounded-full overflow-hidden">
+                            <div class="h-full bg-current transition-all duration-500" style="width: ${percent}%"></div>
+                        </div>
+                        <span class="w-12 text-right">${badge}</span>
+                    </div>
+                </div>`;
+            });
+            container.innerHTML = html;
+        }
+
+        // --- DATA MANAGEMENT ---
+
+        function exportGameData() {
+            if (generatedSheetsRegistry.length === 0) return;
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(generatedSheetsRegistry));
+            const downloadAnchorNode = document.createElement('a');
+            downloadAnchorNode.setAttribute("href", dataStr);
+            downloadAnchorNode.setAttribute("download", "comiccon_bingo_sheets.json");
+            document.body.appendChild(downloadAnchorNode);
+            downloadAnchorNode.click();
+            downloadAnchorNode.remove();
+        }
+
+        function importGameData(input) {
+            const file = input.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const data = JSON.parse(e.target.result);
+                    if (Array.isArray(data) && data.length > 0 && data[0].items) {
+                        generatedSheetsRegistry = data;
+                        document.getElementById('sheet-count-display').innerText = `${data.length} Sheets (Imported)`;
+                        alert(`Successfully loaded ${data.length} sheets for tracking!`);
+                        updateSheetLeaderboard();
+                    } else {
+                        alert("Invalid JSON format.");
+                    }
+                } catch (err) {
+                    alert("Error parsing file.");
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        // --- RENDER HELPERS ---
+
+        function renderMasterBoard() {
+            const boardContainer = document.getElementById('tracking-board');
+            boardContainer.innerHTML = '';
+            masterCharacterList.forEach((charName, index) => {
+                const safeName = charName.replace(/'/g, "\\'");
+                const displayName = charName.split('(')[0].trim();
+                const imageUrl = getCharacterImage(charName);
+                
+                const card = document.createElement('div');
+                card.id = `board-item-${index}`; 
+                card.dataset.fullname = charName;
+                card.className = 'board-item relative flex flex-col items-center p-1 border border-gray-200 rounded bg-gray-50 opacity-40 grayscale filter';
+                card.innerHTML = `
+                    <div class="w-full aspect-square relative overflow-hidden rounded mb-1 bg-gray-200">
+                        <img src="${imageUrl}" class="w-full h-full object-cover" onerror="handleImageError(this, '${safeName}')" loading="lazy">
+                    </div>
+                    <div class="text-[8px] sm:text-[9px] font-bold text-center leading-tight w-full truncate text-gray-700">${displayName}</div>
+                `;
+                boardContainer.appendChild(card);
+            });
+        }
+
+        function markBoardCharacterAsCalled(charName) {
+            const index = masterCharacterList.indexOf(charName);
+            if (index !== -1) {
+                const card = document.getElementById(`board-item-${index}`);
+                if (card) {
+                    card.classList.add('called', 'bg-green-50', 'border-green-500');
+                    card.classList.remove('opacity-40', 'grayscale', 'filter');
+                    const checkmark = document.createElement('div');
+                    checkmark.className = "absolute top-0 right-0 bg-green-500 text-white rounded-bl-lg rounded-tr p-0.5 shadow-sm";
+                    checkmark.innerHTML = `<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="4" d="M5 13l4 4L19 7"></path></svg>`;
+                    card.appendChild(checkmark);
+                }
+            }
+        }
+
+        function updateCallerUI(currentItem) {
+            const displayEl = document.getElementById('current-call-display');
+            const btn = document.getElementById('btn-call-next');
+            const countEl = document.getElementById('call-progress');
+            const totalEl = document.getElementById('total-count');
+            const recentContainer = document.getElementById('recent-history');
+
+            countEl.innerText = calledHistory.length;
+            totalEl.innerText = masterCharacterList.length;
+
+            if (deck.length === 0 && calledHistory.length > 0) {
+                btn.innerText = "Game Over";
+                btn.disabled = true;
+                btn.classList.add('bg-gray-400', 'cursor-not-allowed');
+                btn.classList.remove('bg-indigo-600', 'hover:bg-indigo-700');
+            } else {
+                btn.innerText = "Call Next Character";
+                btn.disabled = false;
+                btn.classList.remove('bg-gray-400', 'cursor-not-allowed');
+                btn.classList.add('bg-indigo-600', 'hover:bg-indigo-700');
+            }
+
+            if (currentItem) {
+                const imageUrl = getCharacterImage(currentItem);
+                const safeName = currentItem.replace(/'/g, "\\'");
+                displayEl.innerHTML = `
+                    <div class="animate-pop flex flex-col items-center">
+                        <img src="${imageUrl}" class="w-32 h-32 rounded-full object-cover border-4 border-indigo-200 shadow-lg mb-4" 
+                             alt="${currentItem}" onerror="handleImageError(this, '${safeName}')">
+                        <h2 class="text-3xl sm:text-4xl font-black text-indigo-900 leading-tight text-center">${currentItem}</h2>
+                    </div>
+                `;
+            } else {
+                displayEl.innerHTML = `<h2 class="text-4xl sm:text-5xl font-black text-gray-300 leading-tight">Ready?</h2>`;
+            }
+
+            if (calledHistory.length === 0) {
+                recentContainer.innerHTML = '<span class="text-gray-400 italic text-sm">No calls yet.</span>';
+            } else {
+                const recentHTML = calledHistory.slice(0, 5).map((item, index) => {
+                    const bg = index === 0 ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-700';
+                    const displayName = item.split('(')[0].trim();
+                    return `<span class="px-3 py-1 rounded-full text-xs font-bold ${bg}">${displayName}</span>`;
+                }).join('');
+                recentContainer.innerHTML = recentHTML;
+            }
+        }
+    </script>
+</body>
+</html>
