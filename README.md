@@ -29,7 +29,26 @@ Includes 84 beloved characters from:
 
 ### Prerequisites
 - A modern web browser (Chrome, Firefox, Safari, or Edge)
-- No installation or backend server required!
+- Node.js 20+ and npm (for GitHub Spark-style local/dev workflow)
+
+### Run as a Project (GitHub Spark-style Workflow)
+
+1. Install dependencies
+   ```bash
+   npm install
+   ```
+
+2. Start local dev server
+   ```bash
+   npm run dev
+   ```
+
+3. Build production files
+   ```bash
+   npm run build
+   ```
+
+The production build is output to `dist/`, which is configured for GitHub Pages deployment.
 
 ### Usage
 
@@ -72,10 +91,12 @@ For best results when printing:
 
 ## 🔧 Technical Details
 
-- **Pure HTML/JavaScript**: No dependencies or build process
+- **Core App**: Pure HTML/JavaScript single-page app
 - **Tailwind CSS**: Styling via CDN
 - **Responsive Design**: Works on desktop, tablet, and mobile
 - **Local Storage Ready**: All game state can be exported/imported
+- **Project Build Support**: Vite-based scripts for `dev` and `build`
+- **GitHub Deployment**: `.github/workflows/deploy-pages.yml` publishes `dist/` to GitHub Pages on pushes to `main`
 
 ## 📱 Browser Compatibility
 
